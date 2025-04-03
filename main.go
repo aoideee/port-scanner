@@ -10,10 +10,11 @@ import (
 	"sync"
 	"time"
 	"flag" // Imported 'flag' package
+	"sync/atomic" // For counting safely from goroutines
 )
 
 
-func worker(wg *sync.WaitGroup, tasks chan string, dialer net.Dialer) {
+func worker(wg *sync.WaitGroup, tasks chan string, dialer net.Dialer, openPorts *int32) {
 	defer wg.Done()
 	maxRetries := 3
     for addr := range tasks {
@@ -24,6 +25,7 @@ func worker(wg *sync.WaitGroup, tasks chan string, dialer net.Dialer) {
 			conn.Close()
 			fmt.Printf("Connection to %s was successful\n", addr)
 			success = true
+			atomic.AddInt32(openPorts, 1) // Increments counter
 			break
 		}
 		backoff := time.Duration(1<<i) * time.Second
@@ -37,6 +39,11 @@ func worker(wg *sync.WaitGroup, tasks chan string, dialer net.Dialer) {
 }
 
 func main() {
+	// Declared and initialized counter
+	var openPorts int32 = 0
+
+	// Records the start time
+	start := time.Now()
 
 	var wg sync.WaitGroup
 	tasks := make(chan string, 100)
@@ -68,7 +75,7 @@ func main() {
 
     for i := 1; i <= *workers; i++ { // Dereferenced workers
 		wg.Add(1)
-		go worker(&wg, tasks, dialer)
+		go worker(&wg, tasks, dialer, &openPorts) // Referenced openPorts
 	}
 
 	for p := *startPort; p <= *endPort; p++ { // Dereferenced startPort and endPort
@@ -78,4 +85,13 @@ func main() {
 	}
 	close(tasks)
 	wg.Wait()
+
+	//Records the end time
+	duration := time.Since(start)
+
+	// Scan Summary
+	fmt.Printf("\n--- Scan Summary ---\n")
+	fmt.Printf("Open ports: %d\n", openPorts)
+	fmt.Printf("Total ports scanned: %d\n", *endPort - *startPort + 1)
+	fmt.Printf("Time taken: %s\n", duration)
 }
