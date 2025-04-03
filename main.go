@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"sync"
 	"time"
+	"flag" // Imported 'flag' package
 )
 
 
@@ -40,7 +41,10 @@ func main() {
 	var wg sync.WaitGroup
 	tasks := make(chan string, 100)
 
-    target := "scanme.nmap.org"
+	// Defines flag
+    var target = flag.String("target", "localhost", "Specify the target host")
+	// Reads & applies values
+	flag.Parse()
 
 	dialer := net.Dialer {
 		Timeout: 5 * time.Second,
@@ -57,7 +61,7 @@ func main() {
 
 	for p := 1; p <= ports; p++ {
 		port := strconv.Itoa(p)
-        address := net.JoinHostPort(target, port)
+        address := net.JoinHostPort(*target, port) // Dereferenced 'target'
 		tasks <- address
 	}
 	close(tasks)
