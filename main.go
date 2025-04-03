@@ -50,6 +50,9 @@ func main() {
 	// Defines end port flag
 	var endPort = flag.Int("endPort", 1024, "Specify the end port")
 
+	// Defines workers flag
+	var workers = flag.Int("workers", 100, "Specify the amount of workers")
+
 	// Reads & applies values
 	flag.Parse()
 
@@ -62,10 +65,8 @@ func main() {
 	dialer := net.Dialer {
 		Timeout: 5 * time.Second,
 	}
-  
-	workers := 100
 
-    for i := 1; i <= workers; i++ {
+    for i := 1; i <= *workers; i++ { // Dereferenced workers
 		wg.Add(1)
 		go worker(&wg, tasks, dialer)
 	}
