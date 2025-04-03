@@ -22,10 +22,20 @@ func worker(wg *sync.WaitGroup, tasks chan string, dialer net.Dialer, openPorts 
 		for i := range maxRetries {      
 		conn, err := dialer.Dial("tcp", addr)
 		if err == nil {
-			conn.Close()
+			defer conn.Close()
 			fmt.Printf("Connection to %s was successful\n", addr)
 			success = true
 			atomic.AddInt32(openPorts, 1) // Increments counter
+
+			// Read banner
+			buffer := make([]byte, 1024)
+			conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+			n, err := conn.Read(buffer)
+			if err == nil && n > 0 {
+				fmt.Printf("Banner from %s: %s\n", addr, string(buffer[:n]))
+			} else {
+				fmt.Printf("No banner received from %s\n", addr)
+			}
 			break
 		}
 		backoff := time.Duration(1<<i) * time.Second
