@@ -41,10 +41,23 @@ func main() {
 	var wg sync.WaitGroup
 	tasks := make(chan string, 100)
 
-	// Defines flag
+	// Defines target flag
     var target = flag.String("target", "localhost", "Specify the target host")
+	
+	// Defines start port flag
+	var startPort = flag.Int("startPort", 1, "Specify the start port")
+
+	// Defines end port flag
+	var endPort = flag.Int("endPort", 1024, "Specify the end port")
+
 	// Reads & applies values
 	flag.Parse()
+
+	// Optional input validation added
+	if *startPort > *endPort {
+		fmt.Println("Error: startPort cannot be greater than endPort")
+		return
+	}
 
 	dialer := net.Dialer {
 		Timeout: 5 * time.Second,
@@ -57,9 +70,7 @@ func main() {
 		go worker(&wg, tasks, dialer)
 	}
 
-	ports := 512
-
-	for p := 1; p <= ports; p++ {
+	for p := *startPort; p <= *endPort; p++ { // Dereferenced startPort and endPort
 		port := strconv.Itoa(p)
         address := net.JoinHostPort(*target, port) // Dereferenced 'target'
 		tasks <- address
