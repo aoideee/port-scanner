@@ -60,6 +60,10 @@ func main() {
 	// Defines workers flag
 	var workers = flag.Int("workers", 100, "Specify the amount of workers")
 
+	// Defines timeout flag
+	var timeout = flag.Int("timeout", 5, "Timeout in seconds for each connection")
+
+
 	// Reads & applies values
 	flag.Parse()
 
@@ -69,8 +73,9 @@ func main() {
 		return
 	}
 
+	// Updated Dialer
 	dialer := net.Dialer {
-		Timeout: 5 * time.Second,
+		Timeout: time.Duration(*timeout) * time.Second, // Dereferenced 'timeout'
 	}
 
     for i := 1; i <= *workers; i++ { // Dereferenced workers
