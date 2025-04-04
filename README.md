@@ -18,9 +18,9 @@ This version scans a range of ports on a single target using multiple goroutines
 ```bash
 cd part-a    # or the branch/folder containing Part A
 go run main.go -target=scanme.nmap.org -startPort=20 -endPort=80 -workers=100 -timeout=3
-
+```
 ## Sample Output (Part A)
-`
+```bash
 Connection to scanme.nmap.org:22 was successful
 Failed to connect to scanme.nmap.org:23 after 3 attempts
 ...
@@ -29,4 +29,4 @@ Failed to connect to scanme.nmap.org:23 after 3 attempts
 Open ports: 1
 Total ports scanned: 61
 Time taken: 3.123456s
-`
+```
