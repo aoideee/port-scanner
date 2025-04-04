@@ -109,10 +109,26 @@ func main() {
 	// Defines json flag to enable JSON output
 	var jsonOutput = flag.Bool("json", false, "Output results in JSON format")
 
+	// 
+	var specificPorts = flag.String("ports", "", "Comma-separated list of specific ports to scan (e.g. 22,8,443)")
+
 	// Reads & applies values
 	flag.Parse()
 
 	targetList := strings.Split(*targets, ",")
+
+	var portList []int
+	if *specificPorts != "" {
+		portStrs := strings.Split(*specificPorts, ",")
+		for _, ps := range portStrs {
+			port, err := strconv.Atoi(strings.TrimSpace(ps))
+			if err != nil {
+				fmt.Printf("Invalid port: %s\n", ps)
+				return
+			}
+			portList = append(portList, port)
+		}
+	}
 
 	// Optional input validation added
 	if *startPort > *endPort {
@@ -138,12 +154,25 @@ func main() {
 	}
 
 	for _, tgt := range targetList {
-		for p := *startPort; p <= *endPort; p++ { // Dereferenced startPort and endPort
-		fmt.Printf("Scanning %s: %d/%d\n", tgt, p, *endPort) // Progress indicator
-		port := strconv.Itoa(p)
-        address := net.JoinHostPort(tgt, port) // Dereferenced 'target'
-		tasks <- address
+		if len(portList) > 0 {
+
+			// Scan only specified ports
+			for _, p := range portList {
+				fmt.Printf("Scanning %s: %d\n", tgt, p)
+				port := strconv.Itoa(p)
+				address := net.JoinHostPort(tgt, port)
+				tasks <- address
+			}
+		} else {
+			// Fallback to range scan
+			for p := *startPort; p <= *endPort; p++ { // Dereferenced startPort and endPort
+			fmt.Printf("Scanning %s: %d/%d\n", tgt, p, *endPort) // Progress indicator
+			port := strconv.Itoa(p)
+			address := net.JoinHostPort(tgt, port) // Dereferenced 'target'
+			tasks <- address
+			}
 		}
+		
 	}
 	
 	close(tasks)
