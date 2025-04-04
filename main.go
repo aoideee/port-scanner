@@ -4,13 +4,13 @@
 package main
 
 import (
+	"flag" // Imported 'flag' package
 	"fmt"
 	"net"
 	"strconv"
 	"sync"
-	"time"
-	"flag" // Imported 'flag' package
 	"sync/atomic" // For counting safely from goroutines
+	"time"
 )
 
 
@@ -94,6 +94,7 @@ func main() {
 	}
 
 	for p := *startPort; p <= *endPort; p++ { // Dereferenced startPort and endPort
+		fmt.Printf("Scanning port %d/%d\n", p, *endPort) // Progress indicator
 		port := strconv.Itoa(p)
         address := net.JoinHostPort(*target, port) // Dereferenced 'target'
 		tasks <- address
