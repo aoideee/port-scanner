@@ -1,7 +1,3 @@
-# Go TCP Port Scanner
-
-This project is a command-line TCP port scanner written in Go. It demonstrates the use of concurrency with goroutines, synchronization with WaitGroups and mutexes, and customizable flags for scanning flexibility.
-
 ## 📌 Part A: Basic Scanner
 
 This version scans a range of ports on a single target using multiple goroutines. It includes retry logic and a summary report of open ports.
