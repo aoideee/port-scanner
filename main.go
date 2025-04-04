@@ -12,10 +12,18 @@ import (
 	"sync/atomic" // For counting safely from goroutines
 	"time"
 	"strings" // For scanning multiple targets
+	"encoding/json"
 )
 
+// Struct to store scan results for JSON output
+type ScanResult struct {
+	Target string `json:"target"`             // Target hostname or IP
+	Port int `json:"port"`                    // Open port number
+	Banner string `json:"banner,omitempty"` // Optional banner string (if it's present)
+}
 
-func worker(wg *sync.WaitGroup, tasks chan string, dialer net.Dialer, openPorts *int32) {
+// Updated worker func
+func worker(wg *sync.WaitGroup, tasks chan string, dialer net.Dialer, openPorts *int32, results *[]ScanResult, resultsMutex *sync.Mutex) {
 	defer wg.Done()
 	maxRetries := 3
     for addr := range tasks {
@@ -26,19 +34,43 @@ func worker(wg *sync.WaitGroup, tasks chan string, dialer net.Dialer, openPorts 
 			defer conn.Close()
 			fmt.Printf("Connection to %s was successful\n", addr)
 			success = true
-			atomic.AddInt32(openPorts, 1) // Increments counter
+			atomic.AddInt32(openPorts, 1) // Automatically increments open port count
 
-			// Read banner
+			// Attempt to grab the banner (initial message from server)
 			buffer := make([]byte, 1024)
-			conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+			conn.SetReadDeadline(time.Now().Add(2 * time.Second)) // Avoid hanging forever
 			n, err := conn.Read(buffer)
 			if err == nil && n > 0 {
 				fmt.Printf("Banner from %s: %s\n", addr, string(buffer[:n]))
 			} else {
 				fmt.Printf("No banner received from %s\n", addr)
 			}
-			break
+
+			banner := ""
+			if err == nil && n > 0 {
+				banner = string(buffer[:n])
+				fmt.Printf("Banner from %s: %s\n", addr, banner)
+			} else {
+				fmt.Printf("No banner received from %s\n", addr)
+			}
+
+			// Parse address into host and port fro storing in results
+			host, portStr, _ := net.SplitHostPort(addr)
+			port, _ := strconv.Atoi(portStr)
+
+			// Safely appends to shared results slice using a mutex
+			resultsMutex.Lock()
+			*results = append(*results, ScanResult{
+				Target: host,
+				Port: port,
+				Banner: banner,
+			})
+			resultsMutex.Unlock()
+
+			break // Exits loop after success
 		}
+
+		// Retry with exponential backoff if connection failed
 		backoff := time.Duration(1<<i) * time.Second
 		fmt.Printf("Attempt %d to %s failed. Waiting %v...\n", i+1,  addr, backoff)
 		time.Sleep(backoff)
@@ -74,6 +106,9 @@ func main() {
 	// Defines timeout flag
 	var timeout = flag.Int("timeout", 5, "Timeout in seconds for each connection")
 
+	// Defines json flag to enable JSON output
+	var jsonOutput = flag.Bool("json", false, "Output results in JSON format")
+
 	// Reads & applies values
 	flag.Parse()
 
@@ -90,9 +125,16 @@ func main() {
 		Timeout: time.Duration(*timeout) * time.Second, // Dereferenced 'timeout'
 	}
 
-    for i := 1; i <= *workers; i++ { // Dereferenced workers
+	// Slice to store scan results from all workers
+	var results []ScanResult
+
+	// Mutex to protect concurrent writes to results slice
+	var resultsMutex sync.Mutex
+
+	// Launch worker goroutines and pass pointers to results and mutex
+    for i := 1; i <= *workers; i++ {
 		wg.Add(1)
-		go worker(&wg, tasks, dialer, &openPorts) // Referenced openPorts
+		go worker(&wg, tasks, dialer, &openPorts, &results, &resultsMutex) // Updated referenced openPorts
 	}
 
 	for _, tgt := range targetList {
@@ -110,9 +152,21 @@ func main() {
 	//Records the end time
 	duration := time.Since(start)
 
-	// Scan Summary
-	fmt.Printf("\n--- Scan Summary ---\n")
-	fmt.Printf("Open ports: %d\n", openPorts)
-	fmt.Printf("Total ports scanned: %d\n", *endPort - *startPort + 1)
-	fmt.Printf("Time taken: %s\n", duration)
+	// Output scan results in JSON if flag is set
+	if *jsonOutput {
+		fmt.Println("\n--- JSON Output ---")
+		jsonData, err := json.MarshalIndent(results, "", "  ") // Pretty-print with indent
+		if err != nil {
+			fmt.Println("Error encoding JSON:", err)
+		} else {
+			fmt.Println(string(jsonData))
+		}
+	} else {
+		// Default text summary output
+		fmt.Printf("\n--- Scan Summary ---\n")
+		fmt.Printf("Open ports: %d\n", openPorts)
+		fmt.Printf("Total ports scanned: %d\n", *endPort - *startPort + 1)
+		fmt.Printf("Time taken: %s\n", duration)
+	}
+	
 }
