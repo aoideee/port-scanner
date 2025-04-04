@@ -4,37 +4,42 @@
 package main
 
 import (
-	"flag" // Imported 'flag' package
+	"flag"
 	"fmt"
 	"net"
 	"strconv"
 	"sync"
-	"sync/atomic" // For counting safely from goroutines
+	"sync/atomic"
 	"time"
-	"strings" // For scanning multiple targets
-	"encoding/json"
+	"strings" // For splitting  CSV inputs (like -targets and -ports)
+	"encoding/json" // For optional JSON output
 )
 
-// Struct to store scan results for JSON output
+// ScanResult defines the structure used to store results (used in JSON output)
 type ScanResult struct {
 	Target string `json:"target"`             // Target hostname or IP
 	Port int `json:"port"`                    // Open port number
 	Banner string `json:"banner,omitempty"` // Optional banner string (if it's present)
 }
 
-// Updated worker func
+// worker is a goroutine function that attempts to connect to provided address,
+// performs banner grabbing, and saves results thread-safely.
 func worker(wg *sync.WaitGroup, tasks chan string, dialer net.Dialer, openPorts *int32, results *[]ScanResult, resultsMutex *sync.Mutex) {
 	defer wg.Done()
+
 	maxRetries := 3
+
     for addr := range tasks {
 		var success bool
+
+		// Retry connection up to maxRetries with exponential backoff
 		for i := range maxRetries {      
 		conn, err := dialer.Dial("tcp", addr)
 		if err == nil {
 			defer conn.Close()
 			fmt.Printf("Connection to %s was successful\n", addr)
 			success = true
-			atomic.AddInt32(openPorts, 1) // Automatically increments open port count
+			atomic.AddInt32(openPorts, 1) // Safely increment open port counter
 
 			// Attempt to grab the banner (initial message from server)
 			buffer := make([]byte, 1024)
@@ -54,7 +59,7 @@ func worker(wg *sync.WaitGroup, tasks chan string, dialer net.Dialer, openPorts 
 				fmt.Printf("No banner received from %s\n", addr)
 			}
 
-			// Parse address into host and port fro storing in results
+			// Split host:port and store result safely
 			host, portStr, _ := net.SplitHostPort(addr)
 			port, _ := strconv.Atoi(portStr)
 
@@ -70,7 +75,7 @@ func worker(wg *sync.WaitGroup, tasks chan string, dialer net.Dialer, openPorts 
 			break // Exits loop after success
 		}
 
-		// Retry with exponential backoff if connection failed
+		// Wait with exponential backoff before retrying
 		backoff := time.Duration(1<<i) * time.Second
 		fmt.Printf("Attempt %d to %s failed. Waiting %v...\n", i+1,  addr, backoff)
 		time.Sleep(backoff)
@@ -82,41 +87,31 @@ func worker(wg *sync.WaitGroup, tasks chan string, dialer net.Dialer, openPorts 
 }
 
 func main() {
-	// Declared and initialized counter
+	// Counter for open ports, shared across goroutines
 	var openPorts int32 = 0
 
 	// Records the start time
 	start := time.Now()
 
 	var wg sync.WaitGroup
-	tasks := make(chan string, 100)
+	tasks := make(chan string, 100) // Buffered channel to hold addresses to scan
 
-	// Defines target flag (modified to take multiple targets)
+	// Command-line flags for user-configurable options
     var targets = flag.String("targets", "localhost", "Comma-separated list of targets")
-	
-	// Defines start port flag
 	var startPort = flag.Int("startPort", 1, "Specify the start port")
-
-	// Defines end port flag
 	var endPort = flag.Int("endPort", 1024, "Specify the end port")
-
-	// Defines workers flag
 	var workers = flag.Int("workers", 100, "Specify the amount of workers")
-
-	// Defines timeout flag
 	var timeout = flag.Int("timeout", 5, "Timeout in seconds for each connection")
-
-	// Defines json flag to enable JSON output
 	var jsonOutput = flag.Bool("json", false, "Output results in JSON format")
-
-	// 
 	var specificPorts = flag.String("ports", "", "Comma-separated list of specific ports to scan (e.g. 22,8,443)")
 
-	// Reads & applies values
+	// Parse command-line input
 	flag.Parse()
 
+	// Split target list
 	targetList := strings.Split(*targets, ",")
 
+	// Parse specific ports if provided
 	var portList []int
 	if *specificPorts != "" {
 		portStrs := strings.Split(*specificPorts, ",")
@@ -130,13 +125,13 @@ func main() {
 		}
 	}
 
-	// Optional input validation added
+	// Validate port range
 	if *startPort > *endPort {
 		fmt.Println("Error: startPort cannot be greater than endPort")
 		return
 	}
 
-	// Updated Dialer
+	// Set up the network dialer with specified timeout
 	dialer := net.Dialer {
 		Timeout: time.Duration(*timeout) * time.Second, // Dereferenced 'timeout'
 	}
@@ -153,10 +148,11 @@ func main() {
 		go worker(&wg, tasks, dialer, &openPorts, &results, &resultsMutex) // Updated referenced openPorts
 	}
 
+	// Distribute tasks to workers
 	for _, tgt := range targetList {
 		if len(portList) > 0 {
 
-			// Scan only specified ports
+			// If user specified specific ports
 			for _, p := range portList {
 				fmt.Printf("Scanning %s: %d\n", tgt, p)
 				port := strconv.Itoa(p)
@@ -164,7 +160,7 @@ func main() {
 				tasks <- address
 			}
 		} else {
-			// Fallback to range scan
+			// Scan full port range
 			for p := *startPort; p <= *endPort; p++ { // Dereferenced startPort and endPort
 			fmt.Printf("Scanning %s: %d/%d\n", tgt, p, *endPort) // Progress indicator
 			port := strconv.Itoa(p)
@@ -175,8 +171,8 @@ func main() {
 		
 	}
 	
-	close(tasks)
-	wg.Wait()
+	close(tasks) // Closes the task channel to signal no more work
+	wg.Wait() // Wait for all workers to finish
 
 	//Records the end time
 	duration := time.Since(start)
