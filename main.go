@@ -11,6 +11,7 @@ import (
 	"sync"
 	"sync/atomic" // For counting safely from goroutines
 	"time"
+	"strings" // For scanning multiple targets
 )
 
 
@@ -58,8 +59,8 @@ func main() {
 	var wg sync.WaitGroup
 	tasks := make(chan string, 100)
 
-	// Defines target flag
-    var target = flag.String("target", "localhost", "Specify the target host")
+	// Defines target flag (modified to take multiple targets)
+    var targets = flag.String("targets", "localhost", "Comma-separated list of targets")
 	
 	// Defines start port flag
 	var startPort = flag.Int("startPort", 1, "Specify the start port")
@@ -73,9 +74,10 @@ func main() {
 	// Defines timeout flag
 	var timeout = flag.Int("timeout", 5, "Timeout in seconds for each connection")
 
-
 	// Reads & applies values
 	flag.Parse()
+
+	targetList := strings.Split(*targets, ",")
 
 	// Optional input validation added
 	if *startPort > *endPort {
@@ -93,12 +95,15 @@ func main() {
 		go worker(&wg, tasks, dialer, &openPorts) // Referenced openPorts
 	}
 
-	for p := *startPort; p <= *endPort; p++ { // Dereferenced startPort and endPort
-		fmt.Printf("Scanning port %d/%d\n", p, *endPort) // Progress indicator
+	for _, tgt := range targetList {
+		for p := *startPort; p <= *endPort; p++ { // Dereferenced startPort and endPort
+		fmt.Printf("Scanning %s: %d/%d\n", tgt, p, *endPort) // Progress indicator
 		port := strconv.Itoa(p)
-        address := net.JoinHostPort(*target, port) // Dereferenced 'target'
+        address := net.JoinHostPort(tgt, port) // Dereferenced 'target'
 		tasks <- address
+		}
 	}
+	
 	close(tasks)
 	wg.Wait()
 
