@@ -13,25 +13,34 @@ import (
 	"sync/atomic" // For counting safely from goroutines
 )
 
-
+// worker attempts to connect to each address sent over the 'tasks' channel.
+// It retries a few times with exponential backoff and counts successful connections using atomic increment.
 func worker(wg *sync.WaitGroup, tasks chan string, dialer net.Dialer, openPorts *int32) {
 	defer wg.Done()
+
 	maxRetries := 3
+
     for addr := range tasks {
 		var success bool
+
+		// Retry up to maxRetries with exponential backoff
 		for i := range maxRetries {      
 		conn, err := dialer.Dial("tcp", addr)
 		if err == nil {
 			conn.Close()
 			fmt.Printf("Connection to %s was successful\n", addr)
 			success = true
-			atomic.AddInt32(openPorts, 1) // Increments counter
-			break
+			atomic.AddInt32(openPorts, 1) // Safely increments shared openPorts counter
+			break // Exits the retry loop once successful
 		}
+
+		// Wait with exponential backoff before retrying
 		backoff := time.Duration(1<<i) * time.Second
 		fmt.Printf("Attempt %d to %s failed. Waiting %v...\n", i+1,  addr, backoff)
 		time.Sleep(backoff)
 	    }
+
+		// Logs failure if all retries failed
 		if !success {
 			fmt.Printf("Failed to connect to %s after %d attempts\n", addr, maxRetries)
 		}
@@ -39,57 +48,51 @@ func worker(wg *sync.WaitGroup, tasks chan string, dialer net.Dialer, openPorts 
 }
 
 func main() {
-	// Declared and initialized counter
+	// Counter for open ports, shared across goroutines
 	var openPorts int32 = 0
 
 	// Records the start time
 	start := time.Now()
 
 	var wg sync.WaitGroup
-	tasks := make(chan string, 100)
+	tasks := make(chan string, 100) // Buffered channel to hold addresses to scan
 
-	// Defines target flag
+	// Command-line flags for user-configurable options
     var target = flag.String("target", "localhost", "Specify the target host")
-	
-	// Defines start port flag
 	var startPort = flag.Int("startPort", 1, "Specify the start port")
-
-	// Defines end port flag
 	var endPort = flag.Int("endPort", 1024, "Specify the end port")
-
-	// Defines workers flag
 	var workers = flag.Int("workers", 100, "Specify the amount of workers")
-
-	// Defines timeout flag
 	var timeout = flag.Int("timeout", 5, "Timeout in seconds for each connection")
 
-
-	// Reads & applies values
+	// Parse command-line input
 	flag.Parse()
 
-	// Optional input validation added
+	// Validate port range
 	if *startPort > *endPort {
 		fmt.Println("Error: startPort cannot be greater than endPort")
 		return
 	}
 
-	// Updated Dialer
+	// Set up the network dialer with specified timeout
 	dialer := net.Dialer {
-		Timeout: time.Duration(*timeout) * time.Second, // Dereferenced 'timeout'
+		Timeout: time.Duration(*timeout) * time.Second,
 	}
 
-    for i := 1; i <= *workers; i++ { // Dereferenced workers
+	// Launch worker goroutine
+    for i := 1; i <= *workers; i++ {
 		wg.Add(1)
-		go worker(&wg, tasks, dialer, &openPorts) // Referenced openPorts
+		go worker(&wg, tasks, dialer, &openPorts)
 	}
 
-	for p := *startPort; p <= *endPort; p++ { // Dereferenced startPort and endPort
+	// Send target:port combinations to the tasks channel
+	for p := *startPort; p <= *endPort; p++ {
 		port := strconv.Itoa(p)
-        address := net.JoinHostPort(*target, port) // Dereferenced 'target'
+        address := net.JoinHostPort(*target, port)
 		tasks <- address
 	}
-	close(tasks)
-	wg.Wait()
+
+	close(tasks) // Closes the task channel to signal no more work
+	wg.Wait() // Wait for all workers to finish
 
 	//Records the end time
 	duration := time.Since(start)
